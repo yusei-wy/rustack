@@ -1,5 +1,12 @@
 use core::panic;
 
+#[derive(Debug, PartialEq, Eq)]
+enum Value<'src> {
+    Num(i32),
+    Op(&'src str),
+    Block(Vec<Value<'src>>),
+}
+
 fn main() {
     for line in std::io::stdin().lines() {
         let mut stack = vec![];
