@@ -107,6 +107,7 @@ fn div(stack: &mut Vec<Value>) {
     stack.push(Value::Num(hls / lls));
 }
 
+#[cfg(test)]
 mod tests {
     use super::{parse, Value::*};
 
