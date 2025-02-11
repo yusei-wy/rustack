@@ -22,7 +22,7 @@ fn main() {
     }
 }
 
-fn parse<'a>(line: &'a str) -> Vec<Value> {
+fn parse<'a>(line: &'a str) -> Vec<Value<'a>> {
     let mut stack = vec![];
     let input = line.split_whitespace().collect::<Vec<_>>();
     let mut words = &input[..];
