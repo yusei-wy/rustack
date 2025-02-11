@@ -7,79 +7,138 @@ enum Value<'src> {
     Block(Vec<Value<'src>>),
 }
 
-fn main() {
-    for line in std::io::stdin().lines() {
-        let mut stack = vec![];
-
-        let Ok(line) = line else {
-            continue;
-        };
-
-        for word in line.split_whitespace().collect::<Vec<_>>() {
-            match word.parse::<i32>() {
-                Ok(parsed) => stack.push(parsed),
-                _ => match word {
-                    "+" => add(&mut stack),
-                    "-" => sub(&mut stack),
-                    "*" => mul(&mut stack),
-                    "/" => div(&mut stack),
-                    _ => panic!("{word:?} could not be parsed"),
-                },
-            }
+impl<'src> Value<'src> {
+    fn as_num(&self) -> i32 {
+        match self {
+            Self::Num(val) => *val,
+            _ => panic!("Value is not a number"),
         }
-
-        println!("stack: {stack:?}");
     }
 }
 
-fn add(stack: &mut Vec<i32>) {
-    let hls = stack.pop().unwrap();
-    let lls = stack.pop().unwrap();
-    stack.push(hls + lls);
+fn main() {
+    for line in std::io::stdin().lines().flatten() {
+        parse(&line);
+    }
 }
 
-fn sub(stack: &mut Vec<i32>) {
-    let hls = stack.pop().unwrap();
-    let lls = stack.pop().unwrap();
-    stack.push(hls - lls);
+fn parse<'a>(line: &'a str) -> Vec<Value> {
+    let mut stack = vec![];
+    let input = line.split_whitespace().collect::<Vec<_>>();
+    let mut words = &input[..];
+
+    while let Some((&word, mut rest)) = words.split_first() {
+        if word.is_empty() {
+            break;
+        }
+
+        if word == "{" {
+            let value;
+            (value, rest) = parse_block(rest);
+            stack.push(value);
+        } else if let Ok(parsed) = word.parse::<i32>() {
+            stack.push(Value::Num(parsed));
+        } else {
+            match word {
+                "+" => add(&mut stack),
+                "-" => sub(&mut stack),
+                "*" => mul(&mut stack),
+                "/" => div(&mut stack),
+                _ => panic!("{word:?} could not be parsed"),
+            }
+        }
+
+        words = rest;
+    }
+
+    println!("stack: {stack:?}");
+
+    stack
 }
 
-fn mul(stack: &mut Vec<i32>) {
-    let hls = stack.pop().unwrap();
-    let lls = stack.pop().unwrap();
-    stack.push(hls * lls);
+fn parse_block<'src, 'a>(input: &'a [&'src str]) -> (Value<'src>, &'a [&'src str]) {
+    let mut tokens = vec![];
+    let mut words = input;
+
+    while let Some((&word, mut rest)) = words.split_first() {
+        if word.is_empty() {
+            break;
+        }
+
+        if word == "{" {
+            let value;
+            (value, rest) = parse_block(rest);
+            tokens.push(value);
+        } else if word == "}" {
+            return (Value::Block(tokens), rest);
+        } else if let Ok(value) = word.parse::<i32>() {
+            tokens.push(Value::Num(value));
+        } else {
+            tokens.push(Value::Op(word));
+        }
+
+        words = rest;
+    }
+
+    (Value::Block(tokens), words)
 }
 
-fn div(stack: &mut Vec<i32>) {
-    let hls = stack.pop().unwrap();
-    let lls = stack.pop().unwrap();
-    stack.push(hls / lls);
+fn add(stack: &mut Vec<Value>) {
+    let hls = stack.pop().unwrap().as_num();
+    let lls = stack.pop().unwrap().as_num();
+    stack.push(Value::Num(hls + lls));
+}
+
+fn sub(stack: &mut Vec<Value>) {
+    let hls = stack.pop().unwrap().as_num();
+    let lls = stack.pop().unwrap().as_num();
+    stack.push(Value::Num(hls - lls));
+}
+
+fn mul(stack: &mut Vec<Value>) {
+    let hls = stack.pop().unwrap().as_num();
+    let lls = stack.pop().unwrap().as_num();
+    stack.push(Value::Num(hls * lls));
+}
+
+fn div(stack: &mut Vec<Value>) {
+    let hls = stack.pop().unwrap().as_num();
+    let lls = stack.pop().unwrap().as_num();
+    stack.push(Value::Num(hls / lls));
 }
 
 mod tests {
+    use super::{parse, Value::*};
+
     #[test]
     fn test_add() {
-        let mut stack = vec![1, 2];
-        super::add(&mut stack);
-        assert_eq!(stack, vec![3]);
+        assert_eq!(
+            parse("1 2 + { 3 4 }"),
+            vec![Num(3), Block(vec![Num(3), Num(4)])]
+        );
     }
 
     #[test]
     fn test_sub() {
-        let mut stack = vec![1, 2];
-        super::sub(&mut stack);
-        assert_eq!(stack, vec![1]);
+        assert_eq!(
+            parse("1 2 - { 3 4 }"),
+            vec![Num(-1), Block(vec![Num(3), Num(4)])]
+        );
     }
+
     #[test]
     fn test_mul() {
-        let mut stack = vec![1, 2];
-        super::mul(&mut stack);
-        assert_eq!(stack, vec![2]);
+        assert_eq!(
+            parse("1 2 * { 3 4 }"),
+            vec![Num(2), Block(vec![Num(3), Num(4)])]
+        );
     }
+
     #[test]
     fn test_div() {
-        let mut stack = vec![2, 4];
-        super::div(&mut stack);
-        assert_eq!(stack, vec![2]);
+        assert_eq!(
+            parse("1 2 / { 3 4 }"),
+            vec![Num(0), Block(vec![Num(3), Num(4)])]
+        );
     }
 }
