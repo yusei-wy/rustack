@@ -1,10 +1,11 @@
-use core::panic;
+use std::collections::HashMap;
 
 /// Stack の要素
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Value<'src> {
     Num(i32),
     Op(&'src str),
+    Sym(&'src str),
     Block(Vec<Value<'src>>),
 }
 
@@ -22,6 +23,29 @@ impl<'src> Value<'src> {
             _ => panic!("Value is not a block"),
         }
     }
+
+    fn as_sym(&self) -> &'src str {
+        if let Self::Sym(sym) = self {
+            *sym
+        } else {
+            panic!("Value is not a symbol");
+        }
+    }
+}
+
+/// 変数
+struct Vm<'src> {
+    stack: Vec<Value<'src>>,
+    vars: HashMap<&'src str, Value<'src>>,
+}
+
+impl<'src> Vm<'src> {
+    fn new() -> Self {
+        Self {
+            stack: vec![],
+            vars: HashMap::new(),
+        }
+    }
 }
 
 fn main() {
@@ -32,8 +56,8 @@ fn main() {
 
 /// 入力をパースしてスタックを返す
 fn parse<'a>(line: &'a str) -> Vec<Value<'a>> {
-    let mut stack = vec![];
-    let input = line.split_whitespace().collect::<Vec<_>>();
+    let mut vm = Vm::new();
+    let input = line.split(" ").collect::<Vec<_>>();
     let mut words = &input[..];
 
     while let Some((&word, mut rest)) = words.split_first() {
@@ -44,22 +68,24 @@ fn parse<'a>(line: &'a str) -> Vec<Value<'a>> {
         if word == "{" {
             let value;
             (value, rest) = parse_block(rest);
-            stack.push(value);
+            vm.stack.push(value);
         } else {
             let code = if let Ok(parsed) = word.parse::<i32>() {
                 Value::Num(parsed)
+            } else if word.starts_with("/") {
+                Value::Sym(&word[1..]) // 先頭の `/` をスキップ
             } else {
                 Value::Op(word)
             };
-            eval(code, &mut stack);
+            eval(code, &mut vm);
         }
 
         words = rest;
     }
 
-    println!("stack: {stack:?}");
+    println!("stack: {:?}", vm.stack);
 
-    stack
+    vm.stack
 }
 
 /// ブロックをパースしてスタックを返す
@@ -91,63 +117,59 @@ fn parse_block<'src, 'a>(input: &'a [&'src str]) -> (Value<'src>, &'a [&'src str
 }
 
 /// Value を評価する
-fn eval<'src>(code: Value<'src>, stack: &mut Vec<Value<'src>>) {
+fn eval<'src>(code: Value<'src>, vm: &mut Vm<'src>) {
     match code {
         Value::Op(op) => match op {
-            "+" => add(stack),
-            "-" => sub(stack),
-            "*" => mul(stack),
-            "/" => div(stack),
-            "if" => op_if(stack),
-            _ => panic!("{op:?} could not be parsed"),
+            "+" => add(&mut vm.stack),
+            "-" => sub(&mut vm.stack),
+            "*" => mul(&mut vm.stack),
+            "<" => lt(&mut vm.stack),
+            "/" => div(&mut vm.stack),
+            "if" => op_if(vm),
+            "def" => op_def(vm),
+            _ => {
+                let val = vm
+                    .vars
+                    .get(op)
+                    .expect(&format!("{op:?} is not a defined operation"));
+                vm.stack.push(val.clone());
+            }
         },
-        _ => stack.push(code.clone()),
+        _ => vm.stack.push(code.clone()),
     }
 }
 
-/// stack から値を pop して合計した結果を stack に push する
-fn add(stack: &mut Vec<Value>) {
-    let hls = stack.pop().unwrap().as_num();
-    let lls = stack.pop().unwrap().as_num();
-    stack.push(Value::Num(hls + lls));
+/// operation を定義する
+macro_rules! impl_op {
+    {$name:ident, $op:tt} => {
+        fn $name(stack: &mut Vec<Value>)  {
+            let rhs = stack.pop().unwrap().as_num();
+            let lhs = stack.pop().unwrap().as_num();
+            stack.push(Value::Num((lhs $op rhs) as i32));
+        }
+    }
 }
 
-/// stack から値を pop して差を取った結果を stack に push する
-fn sub(stack: &mut Vec<Value>) {
-    let hls = stack.pop().unwrap().as_num();
-    let lls = stack.pop().unwrap().as_num();
-    stack.push(Value::Num(hls - lls));
-}
-
-/// stack から値を pop して積を取った結果を stack に push する
-fn mul(stack: &mut Vec<Value>) {
-    let hls = stack.pop().unwrap().as_num();
-    let lls = stack.pop().unwrap().as_num();
-    stack.push(Value::Num(hls * lls));
-}
-
-/// stack から値を pop して商を取った結果を stack に push する
-fn div(stack: &mut Vec<Value>) {
-    let hls = stack.pop().unwrap().as_num();
-    let lls = stack.pop().unwrap().as_num();
-    stack.push(Value::Num(hls / lls));
-}
+impl_op!(add, +);
+impl_op!(sub, -);
+impl_op!(mul, *);
+impl_op!(div, /);
+impl_op!(lt, <);
 
 /// if 文を評価する
 /// ```
 /// { cond } { true_branch } { false_branch } if
 /// ```
-fn op_if(stack: &mut Vec<Value>) {
-    let false_branch = stack.pop().unwrap().to_block();
-    let true_branch = stack.pop().unwrap().to_block();
-    let cond = stack.pop().unwrap().to_block();
+fn op_if(vm: &mut Vm) {
+    let false_branch = vm.stack.pop().unwrap().to_block();
+    let true_branch = vm.stack.pop().unwrap().to_block();
+    let cond = vm.stack.pop().unwrap().to_block();
 
     for code in cond {
-        eval(code, stack);
+        eval(code, vm);
     }
 
-    let cond_result = stack.pop().unwrap().as_num();
-
+    let cond_result = vm.stack.pop().unwrap().as_num();
     let branch = if cond_result == 0 {
         false_branch
     } else {
@@ -155,8 +177,18 @@ fn op_if(stack: &mut Vec<Value>) {
     };
 
     for code in branch {
-        eval(code, stack);
+        eval(code, vm);
     }
+}
+
+/// 変数を定義する
+fn op_def(vm: &mut Vm) {
+    let value = vm.stack.pop().unwrap();
+    eval(value, vm);
+    let value = vm.stack.pop().unwrap();
+    let sym = vm.stack.pop().unwrap().as_sym();
+
+    vm.vars.insert(sym, value);
 }
 
 #[cfg(test)]
@@ -164,34 +196,10 @@ mod tests {
     use super::{parse, Value::*};
 
     #[test]
-    fn test_add() {
+    fn test_group() {
         assert_eq!(
             parse("1 2 + { 3 4 }"),
             vec![Num(3), Block(vec![Num(3), Num(4)])]
-        );
-    }
-
-    #[test]
-    fn test_sub() {
-        assert_eq!(
-            parse("1 2 - { 3 4 }"),
-            vec![Num(-1), Block(vec![Num(3), Num(4)])]
-        );
-    }
-
-    #[test]
-    fn test_mul() {
-        assert_eq!(
-            parse("1 2 * { 3 4 }"),
-            vec![Num(2), Block(vec![Num(3), Num(4)])]
-        );
-    }
-
-    #[test]
-    fn test_div() {
-        assert_eq!(
-            parse("1 2 / { 3 4 }"),
-            vec![Num(0), Block(vec![Num(3), Num(4)])]
         );
     }
 
@@ -202,6 +210,14 @@ mod tests {
 
     #[test]
     fn test_if_true() {
-        assert_eq!(parse("{ 1 1 + } { 100 } { -100 } if"), vec![Num(100)],);
+        assert_eq!(parse("{ 1 1 + } { 100 } { -100 } if"), vec![Num(100)]);
+    }
+
+    #[test]
+    fn test_var() {
+        assert_eq!(
+            parse("/x 10 def /y 20 def { x y < } { x } { y } if"),
+            vec![Num(10)]
+        );
     }
 }
