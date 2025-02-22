@@ -215,6 +215,11 @@ mod tests {
 
     #[test]
     fn test_var() {
+        assert_eq!(parse("/x 10 def /y 20 def x y *"), vec![Num(200)]);
+    }
+
+    #[test]
+    fn test_var_if() {
         assert_eq!(
             parse("/x 10 def /y 20 def { x y < } { x } { y } if"),
             vec![Num(10)]
