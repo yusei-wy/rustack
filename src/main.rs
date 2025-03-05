@@ -226,7 +226,8 @@ fn op_if(vm: &mut Vm) {
     }
 }
 
-/// 変数を定義する
+/// シンボルと値を1つずつ pop し, 変数テーブルに追加する
+/// { value } { symbol } def
 fn op_def(vm: &mut Vm) {
     let value = vm.stack.pop().unwrap();
     eval(&value, vm);
