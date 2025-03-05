@@ -41,7 +41,7 @@ impl Value {
             Self::Num(i) => i.to_string(),
             Self::Op(s) | Self::Sym(s) => s.clone(),
             Self::Block(_) => "<Block>".to_string(),
-            Self::Native(_) => "<Native".to_string(),
+            Self::Native(_) => "<Native>".to_string(),
         }
     }
 }
